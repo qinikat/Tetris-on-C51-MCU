@@ -1,0 +1,566 @@
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: F:\keil5\C51\BIN\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\51俄罗斯方块-23年9月28-初版) DEB
+                    -UG OBJECTEXTEND
+
+line level    source
+
+   1          #include <string.h>
+   2          #include <stdio.h>
+   3          #include "main.h"
+   4          
+   5          // LED点阵行控制
+   6          uint8_t gled_row[8] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
+   7          uint8_t gled_col[8] = {0x7f, 0xbf, 0xdf, 0xef, 0xf7, 0xfb, 0xfd, 0xfe};
+   8          
+   9          // 游戏控制变量
+  10          uint8_t game_state = 0;                 // 游戏状态,0为未开始，1为正在运行，2为暂停，3为结束
+  11          uint8_t game_speed_state = 10;  // 游戏速度，0为最慢，1为慢，2为中，3为快，4为最快, 暂未使用
+  12          uint8_t block_shape = 0;                // 方块类型，0为直线，1为正方形，2为L形，3为反L形，4为Z形，5为反Z形，6为T形
+  13          uint8_t yid = 0;                                // 方块移动完成标志，0为未完成，1为完成。
+  14          uint8_t block_rotate_state = 0; // 方块旋转状态，0为0度，1为90度，2为180度，3为270度
+  15          
+  16          uint8_t block_y = 0; // 范围4*4左上角方块y坐标
+  17          uint8_t block_x = 3; // 范围4*4左上角方块x坐标
+  18          
+  19          uint8_t score = 0; // 游戏得分
+  20          
+  21          uint16_t time_temp = 0;            // 计时器变量，用于控制游戏速度
+  22          uint16_t time_temp_randon = 0; // 计时器随机数变量，用于生成随机数
+  23          
+  24          // 定义点阵动态地图
+  25          uint8_t pdata led_map[2 + 8 + 1][1 + 8 + 1] = {{0}};
+  26          // 定义点阵静态地图
+  27          uint8_t xdata led_map_static[2 + 8 + 1][1 + 8 + 1] = {{0}};
+  28          
+  29          // 生成0-6随机数
+  30          uint8_t random_num_0_6()
+  31          {
+  32   1              uint8_t num = 0;
+  33   1              return time_temp_randon % 7;
+  34   1      }
+  35          
+  36          // 生成0-3随机数
+  37          uint8_t random_num_0_3()
+  38          {
+  39   1              uint8_t num = 0;
+  40   1              return time_temp_randon % 4;
+  41   1      }
+  42          
+  43          // 用于反转 8 位二进制数
+  44          uint8_t reverse_bits(uint8_t num)
+  45          {
+  46   1              uint8_t reversed_num, i = 0;
+  47   1              for (i = 0; i < 8; i++)
+  48   1              {
+  49   2                      reversed_num <<= 1;                // 左移腾出位置
+  50   2                      reversed_num |= (num & 1); // 获取 num 的最低位并放到 reversed_num 的最低位
+  51   2                      num >>= 1;                                 // 右移 num 准备处理下一个位
+  52   2              }
+  53   1              return reversed_num;
+  54   1      }
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 2   
+
+  55          
+  56          // LED灯计分显示，P2口显示，共8位2进制数
+  57          void update_led_display(uint8_t score)
+  58          {
+  59   1              uint8_t reversed_score = reverse_bits(score);
+  60   1              // 反转 score 的二进制值：0 -> 1, 1 -> 0
+  61   1              // 因为LED控制的逻辑是 0 为亮，1 为灭，所以要对 score 的二进制位取反
+  62   1              P2 = ~reversed_score; // 按位取反以适应LED的显示逻辑
+  63   1      }
+  64          
+  65          // 延时函数
+  66          void delay_10us(uint16_t ten_us)
+  67          {
+  68   1              while (ten_us--)
+  69   1                      ;
+  70   1      }
+  71          
+  72          // 矩阵键盘按键扫描函数
+  73          uint8_t key_matrix_ranks_scan(void)
+  74          {
+  75   1              uint8_t key_value = 0;
+  76   1      
+  77   1              KEY_MATRIX_PORT = 0xf7;          // 给第一列赋值0，其余全为1
+  78   1              if (KEY_MATRIX_PORT != 0xf7) // 判断第一列按键是否按下
+  79   1              {
+  80   2                      delay_10us(1000);                // 消抖
+  81   2                      switch (KEY_MATRIX_PORT) // 保存第一列按键按下后的键值
+  82   2                      {
+  83   3                      case 0x77:
+  84   3                              key_value = 1;
+  85   3                              break;
+  86   3                      case 0xb7:
+  87   3                              key_value = 5;
+  88   3                              break;
+  89   3                      case 0xd7:
+  90   3                              key_value = 9;
+  91   3                              break;
+  92   3                      case 0xe7:
+  93   3                              key_value = 13;
+  94   3                              break;
+  95   3                      }
+  96   2              }
+  97   1              while (KEY_MATRIX_PORT != 0xf7)
+  98   1                      ; // 等待按键松开
+  99   1      
+ 100   1              KEY_MATRIX_PORT = 0xfb;          // 给第二列赋值0，其余全为1
+ 101   1              if (KEY_MATRIX_PORT != 0xfb) // 判断第二列按键是否按下
+ 102   1              {
+ 103   2                      delay_10us(1000);                // 消抖
+ 104   2                      switch (KEY_MATRIX_PORT) // 保存第二列按键按下后的键值
+ 105   2                      {
+ 106   3                      case 0x7b:
+ 107   3                              key_value = 2;
+ 108   3                              break;
+ 109   3                      case 0xbb:
+ 110   3                              key_value = 6;
+ 111   3                              break;
+ 112   3                      case 0xdb:
+ 113   3                              key_value = 10;
+ 114   3                              break;
+ 115   3                      case 0xeb:
+ 116   3                              key_value = 14;
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 3   
+
+ 117   3                              break;
+ 118   3                      }
+ 119   2              }
+ 120   1              while (KEY_MATRIX_PORT != 0xfb)
+ 121   1                      ; // 等待按键松开
+ 122   1      
+ 123   1              KEY_MATRIX_PORT = 0xfd;          // 给第三列赋值0，其余全为1
+ 124   1              if (KEY_MATRIX_PORT != 0xfd) // 判断第三列按键是否按下
+ 125   1              {
+ 126   2                      delay_10us(1000);                // 消抖
+ 127   2                      switch (KEY_MATRIX_PORT) // 保存第三列按键按下后的键值
+ 128   2                      {
+ 129   3                      case 0x7d:
+ 130   3                              key_value = 3;
+ 131   3                              break;
+ 132   3                      case 0xbd:
+ 133   3                              key_value = 7;
+ 134   3                              break;
+ 135   3                      case 0xdd:
+ 136   3                              key_value = 11;
+ 137   3                              break;
+ 138   3                      case 0xed:
+ 139   3                              key_value = 15;
+ 140   3                              break;
+ 141   3                      }
+ 142   2              }
+ 143   1              while (KEY_MATRIX_PORT != 0xfd)
+ 144   1                      ; // 等待按键松开
+ 145   1      
+ 146   1              KEY_MATRIX_PORT = 0xfe;          // 给第四列赋值0，其余全为1
+ 147   1              if (KEY_MATRIX_PORT != 0xfe) // 判断第四列按键是否按下
+ 148   1              {
+ 149   2                      delay_10us(1000);                // 消抖
+ 150   2                      switch (KEY_MATRIX_PORT) // 保存第四列按键按下后的键值
+ 151   2                      {
+ 152   3                      case 0x7e:
+ 153   3                              key_value = 4;
+ 154   3                              break;
+ 155   3                      case 0xbe:
+ 156   3                              key_value = 8;
+ 157   3                              break;
+ 158   3                      case 0xde:
+ 159   3                              key_value = 12;
+ 160   3                              break;
+ 161   3                      case 0xee:
+ 162   3                              key_value = 16;
+ 163   3                              break;
+ 164   3                      }
+ 165   2              }
+ 166   1              while (KEY_MATRIX_PORT != 0xfe)
+ 167   1                      ; // 等待按键松开
+ 168   1      
+ 169   1              return key_value;
+ 170   1      }
+ 171          
+ 172          // 定时器0始初化,1ms进入一次中断
+ 173          void timer0_init()
+ 174          {
+ 175   1              TMOD |= 0x01; // 选择为定时器0模式，工作方式1，仅用TR0打开启动。
+ 176   1              TH0 = 0xfc;       // 给定时器赋初值，定时1ms
+ 177   1              TL0 = 0x18;       // 定时1ms
+ 178   1              ET0 = 1;          // 打开定时器0中断允许
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 4   
+
+ 179   1              EA = 1;           // 打开总中断
+ 180   1              TR0 = 1;          // 打开定时器
+ 181   1      }
+ 182          
+ 183          // 74HC595写数据函数
+ 184          void hc595_write_data(uint8_t dat)
+ 185          {
+ 186   1              uint8_t i = 0;
+ 187   1              for (i = 0; i < 8; i++) // 循环8次即可将一个字节写入寄存器中
+ 188   1              {
+ 189   2                      SER = dat >> 7; // 优先传输一个字节中的高位
+ 190   2                      dat <<= 1;              // 将低位移动到高位
+ 191   2                      SRCLK = 0;
+ 192   2                      delay_10us(1);
+ 193   2                      SRCLK = 1;
+ 194   2                      delay_10us(1); // 移位寄存器时钟上升沿将端口数据送入寄存器中
+ 195   2              }
+ 196   1              RCLK = 1;
+ 197   1              delay_10us(1);
+ 198   1              RCLK = 0; // 存储寄存器时钟上升沿将前面写入到寄存器的数据输出
+ 199   1      }
+ 200          
+ 201          // 地图显示函数
+ 202          void show_map(uint8_t led_map[11][10])
+ 203          {
+ 204   1              uint8_t gled_row_add_temp;
+ 205   1              uint8_t i, j = 0;
+ 206   1              for (i = 0; i < 8; i++) // 循环8次扫描8行、列
+ 207   1              {
+ 208   2                      gled_row_add_temp = 0x00; // 初始化为全灭
+ 209   2                      for (j = 0; j < 8; j++)
+ 210   2                      {
+ 211   3                              if (led_map[j + 2][i + 1] == 1)
+ 212   3                              {
+ 213   4                                      gled_row_add_temp += gled_row[j];
+ 214   4                              }
+ 215   3                      }
+ 216   2                      LEDDZ_COL_PORT = gled_col[i];            // 传送列选数据
+ 217   2                      hc595_write_data(gled_row_add_temp); // 传送行选数据
+ 218   2                      delay_10us(50);                                          // 延时一段时间，等待显示稳定
+ 219   2                      hc595_write_data(0x00);                          // 消影
+ 220   2              }
+ 221   1      }
+ 222          
+ 223          // 生成方块
+ 224          void creatblock(int shape, int form, int x, int y)
+ 225          {
+ 226   1              uint8_t i, j;
+ 227   1              for (i = 0; i < 3; i++)
+ 228   1              {
+ 229   2                      for (j = 0; j < 3; j++)
+ 230   2                      {
+ 231   3                              if (block[shape][form][i][j] == 1)
+ 232   3                              {
+ 233   4                                      led_map[y + i][x + j] = 1;
+ 234   4                              }
+ 235   3                      }
+ 236   2              }
+ 237   1      }
+ 238          
+ 239          // 游戏重新开始
+ 240          void restart_game()
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 5   
+
+ 241          {
+ 242   1              uint8_t n;
+ 243   1              game_state = 1;
+ 244   1              memcpy(led_map, led_map_start, sizeof(led_map));
+ 245   1              time_temp = 5;
+ 246   1              while (time_temp)
+ 247   1              {
+ 248   2                      show_map(led_map);
+ 249   2              }
+ 250   1              block_shape, block_y, block_x, yid, time_temp, time_temp_randon, block_rotate_state, score = 0;
+ 251   1              block_x = 3; // 范围4*4左上角方块x坐标
+ 252   1              // 清空地图
+ 253   1              memset(led_map, 0, sizeof(led_map));
+ 254   1              memset(led_map_static, 0, sizeof(led_map));
+ 255   1              // 初始化静态地图边界
+ 256   1              for (n = 0; n < 10; n++)
+ 257   1              {
+ 258   2                      led_map_static[n][0] = 1;
+ 259   2                      led_map_static[n][9] = 1;
+ 260   2                      led_map_static[10][n] = 1;
+ 261   2                      // 初始化动态地图边界
+ 262   2                      led_map[n][0] = 1;
+ 263   2                      led_map[n][9] = 1;
+ 264   2                      led_map[10][n] = 1;
+ 265   2              }
+ 266   1      }
+ 267          
+ 268          // 游戏暂停
+ 269          void pause_game()
+ 270          {
+ 271   1              if (game_state != 2)
+ 272   1                      game_state = 2;
+ 273   1              else
+ 274   1                      game_state = 1;
+ 275   1      }
+ 276          
+ 277          // 游戏速度调节
+ 278          void game_speed_chang()
+ 279          {
+ 280   1              game_speed_state--;
+ 281   1              if (game_speed_state == 15)
+ 282   1                      game_speed_state = 4;
+ 283   1      }
+ 284          
+ 285          // 合法性判断
+ 286          uint8_t IsLegal(uint8_t x, uint8_t y)
+ 287          {
+ 288   1              uint8_t i, j;
+ 289   1              for (i = 0; i < 3; i++)
+ 290   1              {
+ 291   2                      for (j = 0; j < 3; j++)
+ 292   2                      {
+ 293   3                              // 如果方块落下的位置本来就已经有方块了，则不合法
+ 294   3                              if ((block[block_shape][block_rotate_state][i][j] == 1) && (led_map_static[y + i][x + j] == 1))
+ 295   3                                      return 0; // 不合法
+ 296   3                      }
+ 297   2              }
+ 298   1              return 1; // 合法
+ 299   1      }
+ 300          
+ 301          // 以3*3矩阵的范围让方块顺时针旋转,传入范围在地图左上角的坐标
+ 302          void block_rotate(int block_y, int block_x)
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 6   
+
+ 303          {
+ 304   1              uint8_t i, j = 0;
+ 305   1              uint8_t block_rotate_state_old = block_rotate_state;
+ 306   1              // 尝试旋转方块
+ 307   1              block_rotate_state++;
+ 308   1              if (block_rotate_state == 4)
+ 309   1                      block_rotate_state = 0;
+ 310   1              // 判断旋转后的方块是否合法
+ 311   1              i = IsLegal(block_x, block_y);
+ 312   1              if (i == 0)
+ 313   1              {
+ 314   2                      block_rotate_state--;
+ 315   2                      if (block_rotate_state == 0)
+ 316   2                              block_rotate_state = 3;
+ 317   2                      return;
+ 318   2              }
+ 319   1              else
+ 320   1              {
+ 321   2                      // 清除原来的方块
+ 322   2                      for (i = 0; i < 3; i++)
+ 323   2                      {
+ 324   3                              for (j = 0; j < 3; j++)
+ 325   3                              {
+ 326   4      
+ 327   4                                      if (block[block_shape][block_rotate_state_old][i][j] == 1)
+ 328   4                                      {
+ 329   5                                              led_map[block_y + i][block_x + j] = 0;
+ 330   5                                      }
+ 331   4                              }
+ 332   3                      }
+ 333   2                      creatblock(block_shape, block_rotate_state, block_x, block_y);
+ 334   2              }
+ 335   1      }
+ 336          
+ 337          // 定时器0中断函数
+ 338          void timer0() interrupt 1
+ 339          {
+ 340   1              static uint16_t i = 0;
+ 341   1              TH0 = 0xfc; // 给定时器赋初值，定时1ms
+ 342   1              TL0 = 0x18; // 定时1ms
+ 343   1              i++;
+ 344   1              time_temp_randon++;
+ 345   1              if (i == 100) // 0.1s进入一次清零
+ 346   1              {
+ 347   2                      if (time_temp > 0)
+ 348   2                      {
+ 349   3                              time_temp--;
+ 350   3                      };
+ 351   2                      i = 0;
+ 352   2              };
+ 353   1              if (time_temp_randon > 10000)
+ 354   1              {
+ 355   2                      time_temp_randon = 0;
+ 356   2              };
+ 357   1      }
+ 358          
+ 359          // 通用的方块移动函数
+ 360          void block_move(BlockMoveDirection direction)
+ 361          {
+ 362   1              uint8_t i, j;
+ 363   1              uint8_t new_x = block_x;
+ 364   1              uint8_t new_y = block_y;
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 7   
+
+ 365   1      
+ 366   1              // 根据方向更新目标坐标
+ 367   1              switch (direction)
+ 368   1              {
+ 369   2              case MOVE_LEFT:
+ 370   2                      new_x = block_x - 1;
+ 371   2                      break;
+ 372   2              case MOVE_RIGHT:
+ 373   2                      new_x = block_x + 1;
+ 374   2                      break;
+ 375   2              case MOVE_DOWN:
+ 376   2                      new_y = block_y + 1;
+ 377   2                      break;
+ 378   2              }
+ 379   1      
+ 380   1              // 检查新坐标是否合法
+ 381   1              if (IsLegal(new_x, new_y))
+ 382   1              {
+ 383   2                      // 清除原来的方块
+ 384   2                      for (i = 0; i < 3; i++)
+ 385   2                      {
+ 386   3                              for (j = 0; j < 3; j++)
+ 387   3                              {
+ 388   4                                      if (block[block_shape][block_rotate_state][i][j] == 1)
+ 389   4                                      {
+ 390   5                                              led_map[block_y + i][block_x + j] = 0;
+ 391   5                                      }
+ 392   4                              }
+ 393   3                      }
+ 394   2                      // 更新方块的坐标
+ 395   2                      block_x = new_x;
+ 396   2                      block_y = new_y;
+ 397   2                      // 在新位置上绘制方块
+ 398   2                      creatblock(block_shape, block_rotate_state, block_x, block_y);
+ 399   2              }
+ 400   1              else if (direction == MOVE_DOWN)
+ 401   1              {
+ 402   2                      // 如果无法下移，存储至静态地图
+ 403   2                      yid = 0;
+ 404   2              }
+ 405   1      }
+ 406          
+ 407          // 把某行以上内容下移一行
+ 408          void block_down_move_row(uint8_t line)
+ 409          {
+ 410   1              uint8_t i, j;
+ 411   1              for (i = line; i > 0; i--)
+ 412   1              {
+ 413   2                      for (j = 0; j < 8; j++)
+ 414   2                      {
+ 415   3                              led_map[i + 1][j + 1] = led_map[i][j + 1];
+ 416   3                      }
+ 417   2              }
+ 418   1      }
+ 419          
+ 420          // 消除满行
+ 421          void block_clear()
+ 422          {
+ 423   1              uint8_t i, j;
+ 424   1              uint8_t count = 0;
+ 425   1              for (i = 8; i > 0; i--)
+ 426   1              {
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 8   
+
+ 427   2                      for (j = 0; j < 8; j++)
+ 428   2                      {
+ 429   3                              if (led_map[i + 1][j + 1] == 1)
+ 430   3                              {
+ 431   4                                      count++;
+ 432   4                              }
+ 433   3                      }
+ 434   2                      if (count == 8)
+ 435   2                      {
+ 436   3                              // 行以上的内容下落
+ 437   3                              block_down_move_row(i);
+ 438   3                              score++;
+ 439   3                      }
+ 440   2                      count = 0;
+ 441   2              }
+ 442   1      }
+ 443          
+ 444          // 判断是否满一列
+ 445          void block_loc_jud()
+ 446          {
+ 447   1              uint8_t i;
+ 448   1              for (i = 0; i < 8; i++)
+ 449   1              {
+ 450   2                      if (led_map_static[2][i + 1] == 1)
+ 451   2                      {
+ 452   3                              memcpy(led_map, led_map_over, sizeof(led_map));
+ 453   3                              time_temp = 5;
+ 454   3                              while (time_temp)
+ 455   3                              {
+ 456   4                                      show_map(led_map);
+ 457   4                              }
+ 458   3                              game_state = 0;
+ 459   3                      }
+ 460   2              }
+ 461   1      }
+ 462          
+ 463          void main()
+ 464          {
+ 465   1              // uart_init(0XFA); // 波特率为9600
+ 466   1              timer0_init(); // 定时器0初始化
+ 467   1              while (1)
+ 468   1              {
+ 469   2                      switch (key_matrix_ranks_scan())
+ 470   2                      {
+ 471   3                      case 1:
+ 472   3                              game_speed_chang();
+ 473   3                              break;
+ 474   3                      case 5:
+ 475   3                              restart_game();
+ 476   3                              break;
+ 477   3                      case 9:
+ 478   3                              pause_game();
+ 479   3                              break;
+ 480   3                      case 11:
+ 481   3                              block_rotate(block_y, block_x);
+ 482   3                              break;
+ 483   3                      case 14:
+ 484   3                              block_move(MOVE_LEFT);
+ 485   3                              break;
+ 486   3                      case 15:
+ 487   3                              block_move(MOVE_DOWN);
+ 488   3                              break;
+C51 COMPILER V9.59.0.0   MAIN                                                              09/21/2024 17:17:57 PAGE 9   
+
+ 489   3                      case 16:
+ 490   3                              block_move(MOVE_RIGHT);
+ 491   3                              break;
+ 492   3                      }
+ 493   2                      // 游戏运行
+ 494   2                      if (game_state == 1)
+ 495   2                      {
+ 496   3                              // 判断是否需要生成方块
+ 497   3                              if (yid == 0)
+ 498   3                              {
+ 499   4                                      block_clear();                     // 判断满一行，若满一行则消除这一行，使上面方块下移，并得分加一
+ 500   4                                      update_led_display(score); // 更新分数
+ 501   4                                      // 更新静态地图,复制数组
+ 502   4                                      memcpy(led_map_static, led_map, sizeof(led_map));
+ 503   4                                      block_x = 3;
+ 504   4                                      block_y = 0;
+ 505   4                                      block_shape = random_num_0_6();
+ 506   4                                      block_rotate_state = random_num_0_3();
+ 507   4                                      creatblock(block_shape, block_rotate_state, 3, 0);
+ 508   4                                      yid = 1;
+ 509   4                              }
+ 510   3                              // 定时下移一行
+ 511   3                              if (time_temp == 0 && yid == 1)
+ 512   3                              {
+ 513   4                                      block_move(MOVE_DOWN);
+ 514   4                                      time_temp = game_speed_state;
+ 515   4                              };
+ 516   3                              // 判断是否满一列
+ 517   3                              if (yid == 1)
+ 518   3                              {
+ 519   4                                      block_loc_jud(); // 判断是否满一列，若满一列则游戏结束
+ 520   4                              }
+ 521   3                      };
+ 522   2                      // 显示游戏地图
+ 523   2                      show_map(led_map);
+ 524   2              }
+ 525   1      }
+ 526          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1725    ----
+   CONSTANT SIZE    =    582    ----
+   XDATA SIZE       =    110    ----
+   PDATA SIZE       =    110    ----
+   DATA SIZE        =     30      28
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
