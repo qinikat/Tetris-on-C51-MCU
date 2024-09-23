@@ -32,4 +32,4 @@ V1.0 - 首发版本。
 
 ### 样例图片
 
-![sample](https://github.com/qinikat/Tetris-on-C51-MCU/tree/master/Sample_Picture/sample.png)
+![sample](https://github.com/qinikat/Tetris-on-C51-MCU/blob/master/Sample_Picture/sample.png)
