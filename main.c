@@ -13,8 +13,8 @@ uint8_t block_shape = 0;		// 方块类型，0为直线，1为正方形，2为L形，3为反L形，4为
 uint8_t yid = 0;				// 方块移动完成标志，0为未完成，1为完成。
 uint8_t block_rotate_state = 0; // 方块旋转状态，0为0度，1为90度，2为180度，3为270度
 
-uint8_t block_y = 0; // 范围4*4左上角方块y坐标
-uint8_t block_x = 3; // 范围4*4左上角方块x坐标
+uint8_t block_y = 0; // 范围3*3左上角方块y坐标
+uint8_t block_x = 3; // 范围3*3左上角方块x坐标
 
 uint8_t score = 0; // 游戏得分
 
@@ -308,15 +308,7 @@ void block_rotate(int block_y, int block_x)
 	if (block_rotate_state == 4)
 		block_rotate_state = 0;
 	// 判断旋转后的方块是否合法
-	i = IsLegal(block_x, block_y);
-	if (i == 0)
-	{
-		block_rotate_state--;
-		if (block_rotate_state == 0)
-			block_rotate_state = 3;
-		return;
-	}
-	else
+	if (IsLegal(block_x, block_y))
 	{
 		// 清除原来的方块
 		for (i = 0; i < 3; i++)
@@ -331,6 +323,10 @@ void block_rotate(int block_y, int block_x)
 			}
 		}
 		creatblock(block_shape, block_rotate_state, block_x, block_y);
+	}
+	else
+	{
+		block_rotate_state = block_rotate_state_old;
 	}
 }
 
@@ -523,4 +519,3 @@ void main()
 		show_map(led_map);
 	}
 }
-
